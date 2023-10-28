@@ -27,6 +27,14 @@ This is an release of the paper： A Deformable Constraint Transport Network for
 
 ## Results
 
+These images depicts some results included in the DCTN papers.
+
+* Some visualization results of the proposed network under different aortic cases.
+  
 ![image](https://github.com/HICL-SYSU/DCTN/blob/main/IMG/3D.png)
+
+* Some quantitative measurement analysis of the proposed network under different aortic cases.
+
+* 
 
 
