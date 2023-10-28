@@ -1,7 +1,7 @@
 # DCTN:Deformable Constraint Transport Network
 
 ## Introduction
-This is an release of the paper： A Deformable Constraint Transport Network for Optimal Aortic Segmentation from CT Images.
+This is an release of the paper： A Deformable Constraint Transport Network for Optimal Aortic Segmentation from CT Images, including the network implementation and the training.
 
 ## News
 
