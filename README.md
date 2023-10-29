@@ -19,11 +19,11 @@ This is a release of the paper： A Deformable Constraint Transport Network for 
 
 
 ##  Code List
-* Pre-processing  
+* Pre-processing
 
-* Model  
+* Dataloader 
 
-* Dataloader  
+* Model   
 
 ## Results
 
