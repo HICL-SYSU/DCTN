@@ -1,7 +1,7 @@
 # DCTN:Deformable Constraint Transport Network
 
 ## Introduction
-This is a release of the paper： A Deformable Constraint Transport Network for Optimal Aortic Segmentation from CT Images, including the pre-processing and the network implementation.
+This is a release of the paper： A Deformable Constraint Transport Network for Optimal Aortic Segmentation from CT Images, including the pre-processing, the network structure and the training implementation.
 
 ## News
 
@@ -16,6 +16,8 @@ This is a release of the paper： A Deformable Constraint Transport Network for 
 *  SimpleITK == 2.2
   
 *  (Optional) The code allows to load images in Nifti formats. If you wish to use nifti formats you should install SimpleITK
+  
+*  ....
 
 
 ##  Code List
@@ -23,7 +25,9 @@ This is a release of the paper： A Deformable Constraint Transport Network for 
 
 * Dataloader 
 
-* Model   
+* Model
+
+* Training
 
 ## Results
 
