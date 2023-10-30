@@ -5,8 +5,8 @@ This is a release of the paper： A Deformable Constraint Transport Network for 
 
 ## News
 
-* [10/26 2023] The code is pre-open source
-* [10/30 2023] These files are updataed
+* [10/22 2023] The code is pre-open source
+* [10/30 2023] These files are updated
 
 ## Requirement
 
