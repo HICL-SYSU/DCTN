@@ -54,28 +54,3 @@ class MyDataset(Dataset):
         label_tensor = torch.from_numpy(label_array)
 
         return image_tensor,label_tensor
-
-
-if __name__ == '__main__':
-    data_transform = transforms.Compose(
-        # [transforms.Resize(256,256)],
-        [transforms.ToTensor()]
-    )
-
-    # 分割图像和标签的路径
-    train_image_path = '/data/MyAorta/NPY/train/image'
-    train_label_path = '/data/MyAorta/NPY/train/label'
-    val_image_path = '/data/MyAorta/NPY/val/image'
-    val_label_path = '/data/MyAorta/NPY/val/label'
-
-    # 加载数据集
-    train_data = MyDataset(train_image_path, train_label_path, train=True, transform=None)
-    val_data = MyDataset(val_image_path, val_label_path, train=False, transform=None)
-    dataloaders = {
-        'train': DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4),
-        'val': DataLoader(val_data, batch_size=16, shuffle=False, num_workers=4, drop_last=True)}
-
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-    model = nn.DataParallel(model)
-    model = model.cuda()
