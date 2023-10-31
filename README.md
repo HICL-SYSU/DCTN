@@ -7,6 +7,7 @@ This is a release of the paper： A Deformable Constraint Transport Network for 
 
 * [10/23 2023] The code is open-sourced
 * [10/30 2023] These files are updated
+* [10/31 2023] The code is also updated simultaneously in https://github.com/HIC-SYSU and https://github.com/HICL-SYSU/DCTN.git.
 
 ## Requirement
 
