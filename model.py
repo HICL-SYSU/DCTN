@@ -18,6 +18,10 @@ import nrrd
 import pandas as pd
 from numpy.linalg import svd
 
+
+from PIL import Image
+import math
+
 """ 
 Extractor
 """
@@ -364,7 +368,7 @@ class Extractor(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
 
-        return x
+        return x, x
 
 
 """ 
@@ -503,103 +507,149 @@ def get_centerline(image_path):
     # show(s, axes=0)
     return s
 
-# CPR based on 3D slicer
-def curveLength(x,y,z):
-    diffs = np.sqrt(np.diff(x)**2+np.diff(y)**2+np.diff(z)**2)
-    length = diffs.sum()
-
-    return length
-
-def planeFit(points):
-
-    points = points.T # dimension is (N,3)
-    points = np.reshape(points, (np.shape(points)[0], -1)) # Collapse trialing dimensions
-    assert points.shape[0] <= points.shape[1], "There are only {} points in {} dimensions.".format(points.shape[1], points.shape[0])
-    ctr = points.mean(axis=1)
-    x = points - ctr[:,np.newaxis]
-    M = np.dot(x, x.T)
-    return ctr, svd(M)[0][:,-1]
-
-def readPoints():
-    pandas_data = pd.read_csv(r'path', sep=',', skiprows=3)
-    numpy_data = np.asarray(pandas_data)
-    all_points = np.asarray(numpy_data[:,1:4], 'float')
-    return all_points
-
-def computeStraighteningTransform(curvePoints, outputSpacingMm = 0.1):
-
-    transformation_RAS2ijk = np.array([[-0.287, 0 ,0, 73.212],[0, -0.287, 0, 75.644],[0, 0 ,0.287, -80.779],[0 ,0 ,0 ,1]]) # 1。gotten from DICOM header
-    transformation_RAS2ijk = np.array([[-0.287, 0, 0, 73.212], [0, -0.287, 0, 75.644], [0, 0, 0.287, -80.779],
-                                       [-1, -1, 1, 1]])  # gotten from DICOM header
-
-    # Slice thickness characterizes how sharply focused your image slice is. can be found in metadata of CT
-    sliceSizeMm = [0.5,  0.5, 0.5]
-    curve_length = curveLength(curvePoints[:,0], curvePoints[:,1], curvePoints[:,2])
-    nPoints = curvePoints.shape[0]
-
-    transformSpacingFactor = 5
-
-    resamplingCurveSpacing = outputSpacingMm * transformSpacingFactor
-
-# Z axis (from first curve point to last, this will be the straightened curve long axis)
-#transformGridAxisZ = (curveEndPoint-curveStartPoint)/np.linalg.norm(curveEndPoint-curveStartPoint)
-    transformGridAxisZ = (curvePoints[-1,:]-curvePoints[0,:])/np.linalg.norm(curvePoints[-1,:]-curvePoints[0,:])
 
 
-# X axis = average X axis of curve
-    sumCurveAxisX_RAS = np.zeros(3)
-    for nSlices in range(nPoints):
+# CPR 
 
-        curvePointToWorldArray = transformation_RAS2ijk
+'''
+The function cpr(img_name, center_line_name), 
+where img_name represents the path of the image and center_line_name represents the path of the centerline point. 
+The former supports .nii.gz and .mha files. The latter only supports .npy files.
+'''
 
-        curveAxisX_RAS = curvePointToWorldArray[0:3, 0]
-        sumCurveAxisX_RAS += curvePoints[nSlices,:]
-
-        meanCurveAxisX_RAS = sumCurveAxisX_RAS/np.linalg.norm(sumCurveAxisX_RAS)
-        transformGridAxisX = meanCurveAxisX_RAS
-
-# Y axis = average Y axis of curve
-    transformGridAxisY = np.cross(transformGridAxisZ, transformGridAxisX)
-    transformGridAxisY = transformGridAxisY/np.linalg.norm(transformGridAxisY)
-
-# Make sure that X axis is orthogonal to Y and Z
-    transformGridAxisX = np.cross(transformGridAxisY, transformGridAxisZ)
-    transformGridAxisX = transformGridAxisX/np.linalg.norm(transformGridAxisX)
-
-
-# Origin (makes the grid centered at the curve)
-    planeCenter, norm = planeFit(curvePoints)
-
-    transformGridOrigin = planeCenter
-    transformGridOrigin -= transformGridAxisX * sliceSizeMm[0]/2.0
-    transformGridOrigin -= transformGridAxisY * sliceSizeMm[1]/2.0
-    transformGridOrigin -= transformGridAxisZ * curve_length/2.0
-
-    gridDimensions = [2, 2, nPoints]
-    gridSpacing = [sliceSizeMm[0], sliceSizeMm[1], resamplingCurveSpacing]
-    gridDirectionMatrixArray = np.eye(4)
-    gridDirectionMatrixArray[0:3, 0] = transformGridAxisX
-    gridDirectionMatrixArray[0:3, 1] = transformGridAxisY
-    gridDirectionMatrixArray[0:3, 2] = transformGridAxisZ
+def update_list1(size, start, P, list1, last_point):
+    for i in range(-1, 2):
+        for j in range(-1, 2):
+            for k in range(-1, 2):
+                new_x, new_y, new_z = start[0] + i, start[1] + j, start[2] + k
+                if new_x >= 0 and new_x < size[0] and new_y >= 0 and new_y < size[1] and new_z >= 0 and new_z < size[2]:
+                    if P[new_x, new_y, new_z] == 0:
+                        if [new_x, new_y, new_z] not in list1:
+                            list1.append([new_x, new_y, new_z])
+                            key = str(new_x) + '+' + str(new_y) + '+' + str(new_z)
+                            if key in last_point.keys():
+                                print('error')
+                            last_point[key] = start
 
 
-    transformDisplacements_RAS = np.zeros((gridDimensions[0],gridDimensions[1],gridDimensions[2]))
+def find_point_list(thin_label_name, start, end):
+    thin_label = sitk.GetArrayFromImage(sitk.ReadImage(thin_label_name))
+    data = thin_label.copy().astype(np.float)
+    data[data < 0.005] = 0.005
+    size = data.shape
+    cost = 1 / data
+    last_point = {}
+    P = np.zeros(cost.shape)
+    key = str(start[0]) + '+' + str(start[1]) + '+' + str(start[2])
+    P[start[0], start[1], start[2]] = 1
+    last_point[key] = [-1, -1, -1]
+    list1 = []
+    update_list1(size, start, P, list1, last_point)
+    iter_num = 0
+    while P[end[0], end[1], end[2]] == 0:
+        iter_num = iter_num + 1
+        if iter_num > 30000:
+            print('failure')
+            return
+        if iter_num % 100 == 0:
+            print(len(list1), len(last_point))
+        cost_min = 301
+        index = -1
+        for i in range(0, len(list1)):
+            if cost_min > cost[list1[i][0], list1[i][1], list1[i][2]]:
+                cost_min = cost[list1[i][0], list1[i][1], list1[i][2]]
+                index = i
+        P[list1[index][0], list1[index][1], list1[index][2]] = 1
+        update_list1(size, [list1[index][0], list1[index][1], list1[index][2]], P, list1, last_point)
+        del list1[index]
+    last = end.copy()
+    path = []
+    while last[0] != -1:
+        path.append(last)
+        last = last_point[str(last[0]) + '+' + str(last[1]) + '+' + str(last[2])]
+    path_arr = path[0][np.newaxis, :]
+    for i in range(1, len(path)):
+        path_arr = np.concatenate([path_arr, np.array(path[i])[np.newaxis, :]])
+    np.save('test_path.npy', path_arr)
+    print('have saved the npy')
+    return 0
 
-    for gridK in range(gridDimensions[2]):
 
-            curvePointToWorldArray = transformation_RAS2ijk
+def cpr_process(img, path):
+    y_list, p_list = [], []
+    '''
+    planar according to the XZ plane, so the indexes are 0 and 2. 
+    if want to planar in the XY plane, please change the index to 0 and 1, i.e. replace as path[*][0] and path[*][1]. The YZ plane is similar.
+    '''
+    y_list.append(0)
+    p_list.append(img[path[0][0], :, path[0][2]])
+    for i in range(1, len(path)):
+        delta_y = math.sqrt(math.pow(path[i][0] - path[i - 1][0], 2) + math.pow(path[i][2] - path[i - 1][2], 2))
+        y_list.append(y_list[-1] + delta_y)
+        p_list.append(img[path[i][0], :, path[i][2]])
 
-            curveAxisX_RAS = curvePointToWorldArray[0:3, 0]
-            curveAxisY_RAS = curvePointToWorldArray[0:3, 1]
-            curvePoint_RAS = curvePointToWorldArray[0:3, 3]
+    new_img = p_list[0][np.newaxis, :]
+    for i in range(1, math.ceil(y_list[-1])):
+        index = []
+        for j in range(0, len(y_list)):
+            if i + 1 >= y_list[j] >= i - 1:
+                index.append(j)
+        new_row = np.zeros((p_list[0].shape[0],))
+        for j in index:
+            new_row = new_row + p_list[j]
+        new_row = new_row / len(index)
+        new_img = np.concatenate([new_img, new_row[np.newaxis, :]])
+    print(new_img.shape)
+    return new_img
 
-    for gridJ in range(gridDimensions[1]):
-        for gridI in range(gridDimensions[0]):
-            straightenedVolume_RAS = (transformGridOrigin+ gridI*gridSpacing[0]*transformGridAxisX+ gridJ*gridSpacing[1]*transformGridAxisY+ gridK*gridSpacing[2]*transformGridAxisZ)
-            inputVolume_RAS = (curvePoint_RAS + (gridI-0.287)*sliceSizeMm[0]*curveAxisX_RAS + (gridJ-0.287)*sliceSizeMm[1]*curveAxisY_RAS)
-            transformDisplacements_RAS[gridK][gridJ][gridI] = inputVolume_RAS - straightenedVolume_RAS # TODO ValueError: setting an array element with a sequence.
 
-            return transformDisplacements_RAS
+def cpr(img_name, center_line_name):
+    img = sitk.GetArrayFromImage(sitk.ReadImage(img_name))
+    path = np.load(center_line_name)
+    path_b = path[0]
+    path_e = path[-1]
+    label = np.zeros(img.shape)
+    for i in range(0, path.shape[0]):
+        label[int(path[i][0]), int(path[i][1]), int(path[i][2])] = 1
+    label = label.astype(np.float)
+    for i in range(1, 6):
+        path = np.concatenate([np.array([path_b[0] - i, path_b[1], path_b[2]])[np.newaxis, :], path], axis=0)
+    for i in range(1, 6):
+        path = np.concatenate([path, np.array([path_e[0] + i, path_e[1], path_e[2]])[np.newaxis, :]], axis=0)
+    print(path[:, 0].max() - path[:, 0].min(), path[:, 1].max() - path[:, 1].min(), path[:, 2].max() - path[:, 2].min())
+    print(img.shape)
+    new_img = cpr_process(img, path)
+    new_label = cpr_process(label, path)
+    img_slicer = (((new_img - new_img.min()) / (new_img.max() - new_img.min())) * 255).astype(np.uint8)
+    img_slicer = Image.fromarray(img_slicer)
+    img_slicer = img_slicer.convert("RGB")
+    img_slicer = np.array(img_slicer)
+    index_label = np.where(new_label > 0.2)
+    for i in range(0, len(index_label[0])):
+        img_slicer[index_label[0][i], index_label[1][i]] = [255, 0, 0]
+    img_slicer = Image.fromarray(img_slicer)
+    img_slicer = img_slicer.transpose(Image.ROTATE_180)
+    # img_slicer.save('show_img.png')
+
+
+'''
+Need to first convert the centerline image into a series of sequential points. 
+A minimum path method for continuous centerline extraction, 
+which is called find_point_list(thin_label_name, start, end), 
+where thin_label_name is the path of 3D image, start is the coordinates of the starting point of the center line and end is the coordinates of the ending point of the center line.
+This function will save the center line as an .npy file.
+
+for example：
+if __name__ == '__main__':
+    root_path = './example/'
+    img_file = root_path +'img.nii'
+    thin_file = root_path + 'thin.nii'
+    start, end = [71,107,170],[186,124,166]
+    find_point_list = (thin_file, start,end)
+    center_line = './cen.npy'
+    cpr(img_file, center_line)
+'''
+
 
 # graph optimal transport
 def cost_matrix(x, y):
@@ -625,3 +675,74 @@ def W_distance(C, n, m):
     T = OT(C, n, m)
     distance = torch.trace(torch.matmul(C, T.t()))
     return W_distance
+
+
+def init_layer(layer, activation_type = 'tanh'):
+    if isinstance(layer, nn.Conv2d):
+        if activation_type == 'tanh':
+            nn.init.xavier_uniform_(layer.weight)
+        else:
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+
+        if layer.bias is not None:
+            nn.init.constant_(layer.bias, 0)
+    else:
+        raise ValueError(f"Unsupported layer type: {type(layer)}")
+
+
+def init_bn(bn):
+    nn.init.constant_(bn.weight, 1)
+    nn.init.constant_(bn.bias, 0)
+
+
+class DCTN(nn.Module):
+
+    def __init__(self):
+        super(MyNET2, self).__init__()
+        self.conv_block_down1 = Extractor(in_channels=1, out_channels=64)
+        self.conv_block_down2 = Extractor(in_channels=64, out_channels=128)
+        self.conv_block_down3 = Extractor(in_channels=128, out_channels=256)
+        self.conv_block_down4 = Extractor(in_channels=256, out_channels=512)
+
+        self.conv_block = ConvBlock_Down(in_channels=512, out_channels=512)
+
+        self.conv_block_up4 = Decoder(in_channels=512, out_channels=256)
+        self.conv_block_up3 = Decoder(in_channels=256, out_channels=128)
+        self.conv_block_up2 = Decoder(in_channels=128, out_channels=64)
+        self.conv_block_up1 = Decoder(in_channels=64, out_channels=32)
+
+
+	self.conv_block_guide4 = Guider(in_channels=512, out_channels=256)
+        self.conv_block_guide3 = Guider(in_channels=256, out_channels=128)
+        self.conv_block_guide2 = Guider(in_channels=128, out_channels=64)
+        self.conv_block_guide1 = Guider(in_channels=64, out_channels=32)
+
+        self.final_conv = nn.Conv1d(32, 4, kernel_size=1)
+
+    def forward(self, x):
+
+        # Encoder
+        x1,x1_pooled = self.conv_block_down1(x)
+        x2,x2_pooled = self.conv_block_down2(x1)
+        x3,x3_pooled = self.conv_block_down3(x2)
+        x4,x4_pooled = self.conv_block_down4(x3)
+
+        out1,_ = self.conv_block(x4,is_pool=False)
+
+        # Decoder
+        out1-0 = self.conv_block_up4(out1, x4)
+        out1-1 = self.conv_block_up3(out1-0, x3)
+        out1-2 = self.conv_block_up2(out1-1, x2)
+        out1-3 = self.conv_block_up1(out1-2, x1)
+	    
+        out1 = self.final_conv(out1-3)
+
+        out2-0 = self.conv_block_guide4(out1-3, x4_pooled)
+        out2-1 = self.conv_block_guide3(out1-2 x3_pooled)
+        out2-2 = self.conv_block_guide2(out1-1, x2_pooled)
+        out2-3 = self.conv_block_guide1(out1-0, x1_pooled)
+	    
+        out2 = self.final_conv(out2-3)
+
+        # return output
+        return out1, out2
