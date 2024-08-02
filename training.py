@@ -9,8 +9,6 @@ import time
 from tqdm import tqdm
 from sklearn.model_selection import KFold
 
-import DCTN
-import Loss
 
 device_ids = [0,1]
 
