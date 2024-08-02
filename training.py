@@ -9,6 +9,7 @@ import time
 from tqdm import tqdm
 from sklearn.model_selection import KFold
 
+from model import DCTN
 
 device_ids = [0,1]
 
